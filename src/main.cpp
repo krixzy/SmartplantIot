@@ -3,32 +3,53 @@
 #include <secrets.h>
 #include <ArduinoMqttClient.h>
 #include <ArduinoJson.h>
+#include "functions.h"
 
 
 MKRIoTCarrier carrier;
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
-void printNertworkData();
-void connectWifi();
-void connectAp();
 WiFiServer server(80);
+unsigned long previousMillis = 0;
+const long interval = 1000 * 60 * 60 * 3;
+int dry;
+int wet;
+String readMoistureSensor();
+
+
 
 
 void setup() {
   Serial.begin(9600);
-  // connectWifi();
-  server.begin();
-  connectAp();
+  while (!Serial);
+  carrier.withCase();
+  carrier.begin();
+  carrier.display.setTextSize(2); 
+
+  calibratedMoistureSensor();
+  readMoistureSensor();
+  connectWifi();
 
 }
 
 void loop() {
+  if(millis() - previousMillis >= interval){
+    previousMillis = millis();
+    connectWifi();
+  }
+  // Serial.println(dry);
+  // Serial.println(wet);
 
+  Serial.println(readMoistureSensor());
+
+  delay(1000);
 }
 
 void connectAp() {
+  server.begin();
   WiFi.beginAP("ArduinoWiFi", "12345678");
-  while (true) {
+  bool apOpen = true;
+  while (apOpen) {
     WiFiClient client = server.available();
     if (client) {
       String currentLine = "";
@@ -91,39 +112,52 @@ void connectAp() {
 
                     pass[newPassword.length() + 1];
                     newPassword.toCharArray(pass, newPassword.length() + 1);
+                    #define SECRET_SSID newSsid
+                    #define SECRET_PASS newPassword
                     Serial.println(ssid);
                     Serial.println(pass);
+                    client.stop();
+                    apOpen = false;
                     connectWifi();
-                  }
 
+                  }
 
             }
 
           }
+
         }
+
       }
       // close the connection:
-      client.stop();
-      delay(1000);
-
       
 
     }
   }
+      Serial.println("client disconnected");
+
 }
 
 
 
 
 void connectWifi() {
+    int counter = 10;
     WiFi.begin(ssid, pass);
     Serial.print("Connecting to ");
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED && counter-- > 0) {
     delay(4000);
     WiFi.begin(ssid, pass);
-    Serial.print(".");
+    Serial.print(counter);
   }
+  if(WiFi.status() == WL_CONNECTED){
   printNertworkData();
+  //kode her for at sende data til server
+  }else{
+    connectAp();
+  
+  }
+  WiFi.disconnect();
 }
 
 
@@ -143,3 +177,71 @@ void printNertworkData(){
   Serial.print("SSID: ");
   Serial.println(WiFi.SSID());
 }
+
+ void calibratedMoistureSensor(){
+
+  bool dryCalab = false;
+  bool wetCalab = false;
+  carrier.display.setCursor(25, 100);
+  carrier.display.print("Place your sensor");
+  carrier.display.setCursor(20, 120);
+  carrier.display.print("on a dry surface.");
+  carrier.display.setCursor(20, 140);
+  carrier.display.print("and press the button");
+  carrier.leds.setPixelColor(0, 0xF800);
+  carrier.leds.show();
+  
+  while (!dryCalab)
+  {
+    carrier.Buttons.update();
+
+    if(carrier.Buttons.onTouchDown(TOUCH0)){
+      dry = analogRead(A6); 
+      dryCalab = true;
+      carrier.leds.clear();
+
+
+    }
+  }
+  carrier.display.fillScreen(0);
+  carrier.display.setCursor(25, 100);
+  carrier.display.print("Place your sensor");
+  carrier.display.setCursor(20, 120);
+  carrier.display.print("in a glass of water.");
+  carrier.display.setCursor(20, 140);
+  carrier.display.print("and press the button");
+  carrier.leds.setPixelColor(4, 0xF800);
+  carrier.leds.show();
+  while (!wetCalab)
+  {
+    carrier.Buttons.update();
+
+    if(carrier.Buttons.onTouchDown(TOUCH4)){
+      wet = analogRead(A6);
+      wetCalab = true;
+      carrier.leds.clear();
+      carrier.leds.show();
+      
+
+    }
+  }
+  
+  carrier.display.fillScreen(0);
+  
+
+
+
+ }
+
+
+
+ String readMoistureSensor(){
+  int moisture = analogRead(A6);
+  int moisturePercent = map(moisture, wet - 30, dry, 100, 0);
+  DynamicJsonDocument doc(1024);
+  doc["soilMoisturePercentage"] = (moisturePercent);
+  String jsonString;
+  serializeJson(doc, jsonString);
+  return jsonString;
+ }
+
