@@ -14,8 +14,11 @@ unsigned long previousMillis = 0;
 const long interval = 1000 * 60 * 60 * 3;
 int dry;
 int wet;
-String readMoistureSensor();
-
+DynamicJsonDocument readMoistureSensor();
+DynamicJsonDocument readTemperature();
+DynamicJsonDocument readLight();
+DynamicJsonDocument readHumidity();
+DynamicJsonDocument doc(1024);
 
 
 
@@ -25,10 +28,15 @@ void setup() {
   carrier.withCase();
   carrier.begin();
   carrier.display.setTextSize(2); 
-
-  calibratedMoistureSensor();
-  readMoistureSensor();
-  connectWifi();
+  // calibratedMoistureSensor();
+  // connectWifi();
+  doc["timestamp"] = "10000";
+  doc["device"] = "Arduino";
+  doc["soilMoist"] = readMoistureSensor();
+  doc["temperature"] = readTemperature();
+  doc["light"] = readLight();
+  doc ["humidity"] = readHumidity();  
+  serializeJson(doc, Serial);
 
 }
 
@@ -37,12 +45,9 @@ void loop() {
     previousMillis = millis();
     connectWifi();
   }
-  // Serial.println(dry);
-  // Serial.println(wet);
+  readLight();
 
-  Serial.println(readMoistureSensor());
-
-  delay(1000);
+  delay(5000);
 }
 
 void connectAp() {
@@ -235,13 +240,46 @@ void printNertworkData(){
 
 
 
- String readMoistureSensor(){
+ DynamicJsonDocument readMoistureSensor(){
   int moisture = analogRead(A6);
   int moisturePercent = map(moisture, wet - 30, dry, 100, 0);
-  DynamicJsonDocument doc(1024);
-  doc["soilMoisturePercentage"] = (moisturePercent);
-  String jsonString;
-  serializeJson(doc, jsonString);
-  return jsonString;
+  DynamicJsonDocument moistJson(1024);
+  moistJson["soilmoistJsonurePercentage"] = (moisturePercent);
+  moistJson["soilmoistJsonure"] = ("test");
+  return moistJson;
  }
 
+
+ DynamicJsonDocument readTemperature(){
+  int temp = carrier.Env.readTemperature();
+  DynamicJsonDocument tempJson(1024);
+  tempJson["temperatureDegrees"] = (temp -8);
+  return tempJson;
+ }
+
+
+DynamicJsonDocument readLight(){
+  int A, B, C, D;
+  if(carrier.Light.colorAvailable()){
+    carrier.Light.readColor(A, B, C, D);
+    DynamicJsonDocument lightJson(1024);
+    if(D < 20) {
+      lightJson["lightLevel"] = "Very Dark";
+    } else if(D < 40) {
+      lightJson["lightLevel"] = "Dark";
+    } else if(D < 65) {
+      lightJson["lightLevel"] = "Normal";
+    } else if(D < 100) {
+      lightJson["lightLevel"] = "Bright";
+    } else {
+      lightJson["lightLevel"] = "Very Bright";
+    }
+    return lightJson;
+  }
+}
+DynamicJsonDocument readHumidity(){
+  int hum = carrier.Env.readHumidity();
+  DynamicJsonDocument humJson(1024);
+  humJson["humidityPercentage"] = (hum);
+  return humJson;
+}
