@@ -14,12 +14,15 @@ unsigned long previousMillis = 0;
 const long interval = 1000 * 60 * 60 * 3;
 int dry;
 int wet;
-DynamicJsonDocument readMoistureSensor();
-DynamicJsonDocument readTemperature();
-DynamicJsonDocument readLight();
-DynamicJsonDocument readHumidity();
-DynamicJsonDocument doc(1024);
 
+const char user[] = MQTTUSER;
+const char password[] = MQTTPASS;
+const char broker[] = MQTT_SERVER;
+int        port     = MQTT_PORT;
+
+
+WiFiSSLClient wifiSSLClient;
+MqttClient mqttClient(wifiSSLClient);
 
 
 void setup() {
@@ -27,16 +30,12 @@ void setup() {
   while (!Serial);
   carrier.withCase();
   carrier.begin();
-  carrier.display.setTextSize(2); 
+  carrier.display.setTextSize(2);
+  delay(10000);
+  Serial.println(carrier.Light.colorAvailable()); 
   // calibratedMoistureSensor();
+  // readLight();
   // connectWifi();
-  doc["timestamp"] = "10000";
-  doc["device"] = "Arduino";
-  doc["soilMoist"] = readMoistureSensor();
-  doc["temperature"] = readTemperature();
-  doc["light"] = readLight();
-  doc ["humidity"] = readHumidity();  
-  serializeJson(doc, Serial);
 
 }
 
@@ -45,9 +44,9 @@ void loop() {
     previousMillis = millis();
     connectWifi();
   }
-  readLight();
 
-  delay(5000);
+  delay(10000);
+  // connectWifi();
 }
 
 void connectAp() {
@@ -155,14 +154,28 @@ void connectWifi() {
     WiFi.begin(ssid, pass);
     Serial.print(counter);
   }
-  if(WiFi.status() == WL_CONNECTED){
-  printNertworkData();
-  //kode her for at sende data til server
-  }else{
+  if (WiFi.status() == WL_CONNECTED) {
+    printNertworkData();
+    DynamicJsonDocument doc(1024);
+    doc["name"] = "Arduino MKR1010";
+    doc["plant"] = "MKR1010";
+    doc["temperature"][0] = readTemperature(); // Assign value to the first element of the array
+    doc["humidity"][0] = readHumidity();
+    doc["light"][0] = readLight();
+    doc["soilmoisture"][0] = readMoistureSensor();
+    doc["device_id"] = "MKR1010";
+    
+    String jsonString;
+    // serializeJson(doc, Serial);
+    // sendMqttMessage("device", jsonString);
+    Serial.println(jsonString);
+  } else {
     connectAp();
   
   }
+  delay(8000);
   WiFi.disconnect();
+
 }
 
 
@@ -244,8 +257,7 @@ void printNertworkData(){
   int moisture = analogRead(A6);
   int moisturePercent = map(moisture, wet - 30, dry, 100, 0);
   DynamicJsonDocument moistJson(1024);
-  moistJson["soilmoistJsonurePercentage"] = (moisturePercent);
-  moistJson["soilmoistJsonure"] = ("test");
+  moistJson["soilMoisturePercentage"] = (moisturePercent);
   return moistJson;
  }
 
@@ -257,29 +269,49 @@ void printNertworkData(){
   return tempJson;
  }
 
-
 DynamicJsonDocument readLight(){
   int A, B, C, D;
+  Serial.println(carrier.Light.colorAvailable());  
   if(carrier.Light.colorAvailable()){
+  Serial.println("test123");
+
     carrier.Light.readColor(A, B, C, D);
-    DynamicJsonDocument lightJson(1024);
-    if(D < 20) {
-      lightJson["lightLevel"] = "Very Dark";
-    } else if(D < 40) {
-      lightJson["lightLevel"] = "Dark";
-    } else if(D < 65) {
-      lightJson["lightLevel"] = "Normal";
-    } else if(D < 100) {
-      lightJson["lightLevel"] = "Bright";
-    } else {
-      lightJson["lightLevel"] = "Very Bright";
+    
+    if (D > 120)
+    {
+      D = 120;
     }
-    return lightJson;
+    
+    int lightProcent = map(D, 0, 120, 0, 100);
+    DynamicJsonDocument lightJson(1024);
+    lightJson["lightPercentage"] = (lightProcent);
+    serializeJson(lightJson, Serial);
+    // return lightJson;
   }
 }
 DynamicJsonDocument readHumidity(){
   int hum = carrier.Env.readHumidity();
   DynamicJsonDocument humJson(1024);
   humJson["humidityPercentage"] = (hum);
+  Serial.println("test");
   return humJson;
+}
+
+
+
+void sendMqttMessage(String topic, String value){
+  mqttClient.setUsernamePassword(user, password);
+  if(!mqttClient.connect(broker, port)){
+    Serial.println("MQTT connection failed");
+    return;
+  }
+  if(WiFi.status() == WL_CONNECTED){
+  Serial.println("MQTT connection success");
+  mqttClient.beginMessage(topic);
+  mqttClient.print(value);
+  mqttClient.endMessage();
+
+
+  }
+
 }
