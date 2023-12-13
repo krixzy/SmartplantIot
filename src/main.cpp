@@ -3,10 +3,11 @@
 #include <secrets.h>
 #include <ArduinoMqttClient.h>
 #include <ArduinoJson.h>
+#include <HttpClient.h>
 #include "functions.h"
+#include "frontEnd.cpp"
 
 
-MKRIoTCarrier carrier;
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
 WiFiServer server(80);
@@ -19,49 +20,103 @@ const char user[] = MQTTUSER;
 const char password[] = MQTTPASS;
 const char broker[] = MQTT_SERVER;
 int        port     = MQTT_PORT;
+String     device_id    = "MKR1010-4";
+bool wifiConnected = false;
+bool updateUi = false;
+// DynamicJsonDocument soilMoist; 
+// DynamicJsonDocument temperature; 
+// DynamicJsonDocument humidity; 
+// DynamicJsonDocument light; 
 
 
 WiFiSSLClient wifiSSLClient;
 MqttClient mqttClient(wifiSSLClient);
 
 
+
+DynamicJsonDocument updateValues(){
+  DynamicJsonDocument valueJson(1024);
+
+  valueJson["soilMoisture"] = readMoistureSensor();
+  valueJson["temperature"] = readTemperature();
+  valueJson["humidity"] = readHumidity();
+  valueJson["light"] = readLight();
+  return valueJson;
+};
+
+
+
+
 void setup() {
   Serial.begin(9600);
   while (!Serial);
-  carrier.withCase();
+
+  carrier.noCase();
   carrier.begin();
-  carrier.display.setTextSize(2);
-  delay(10000);
-  Serial.println(carrier.Light.colorAvailable()); 
+
+  // onStartUp(wifiConnected);
+  // updateUserInterface(wifiConnected);
+  showQrCode();
+
+
+
+  // carrier.display.drawBitmap(40, 40, smartplantQR, 140, 140, 0xffff);
+    
   // calibratedMoistureSensor();
-  // readLight();
   // connectWifi();
+
+
 
 }
 
 void loop() {
+  
   if(millis() - previousMillis >= interval){
     previousMillis = millis();
     connectWifi();
+    updateUi = true;
+  }
+  if (updateUi)
+  {
+      updateUserInterface(wifiConnected);
+      updateUi = false;
+
+  }
+  carrier.Buttons.update();
+  if (carrier.Buttons.onTouchDown(TOUCH2))
+  {
+    showOptions();
+  }
+  if (carrier.Buttons.onTouchDown(TOUCH3))
+  {
+    showData();
   }
 
-  delay(10000);
   // connectWifi();
+
 }
 
 void connectAp() {
+  arduinoApConnectionText();
   server.begin();
   WiFi.beginAP("ArduinoWiFi", "12345678");
   bool apOpen = true;
+  bool apConnectedFirst = true;
   while (apOpen) {
     WiFiClient client = server.available();
     if (client) {
+      if(apConnectedFirst){
+        arduinoApInstruction();
+
+        apConnectedFirst = false;
+      }
       String currentLine = "";
       String postData = "";
       while (client.connected()) {
         if (client.available()) {
           char c = client.read();
           currentLine += c;
+
           if (c == '\n') {
             // if the line is empty, this is the end of the client's request
             if (currentLine.length() == 2) {
@@ -98,7 +153,6 @@ void connectAp() {
             // // if the current line is the Content-Length line, get the value
             if (currentLine.startsWith("Content-Length: ")) {
               while (client.read() != '\n');
-              
              
                   postData = client.readStringUntil('\n');
 
@@ -122,8 +176,9 @@ void connectAp() {
                     Serial.println(pass);
                     client.stop();
                     apOpen = false;
+                    carrier.display.fillScreen(0);
                     connectWifi();
-
+ 
                   }
 
             }
@@ -132,21 +187,24 @@ void connectAp() {
 
         }
 
+
       }
+
       // close the connection:
       
 
     }
   }
-      Serial.println("client disconnected");
 
 }
 
 
-
-
 void connectWifi() {
-    int counter = 10;
+    int counter = 20;
+    carrier.display.fillScreen(0);
+    carrier.display.setTextSize(2);
+    carrier.display.setCursor(80, 117);
+    carrier.display.print("Loading");
     WiFi.begin(ssid, pass);
     Serial.print("Connecting to ");
   while (WiFi.status() != WL_CONNECTED && counter-- > 0) {
@@ -154,29 +212,64 @@ void connectWifi() {
     WiFi.begin(ssid, pass);
     Serial.print(counter);
   }
+  
   if (WiFi.status() == WL_CONNECTED) {
     printNertworkData();
-    DynamicJsonDocument doc(1024);
-    doc["name"] = "Arduino MKR1010";
-    doc["plant"] = "MKR1010";
-    doc["temperature"][0] = readTemperature(); // Assign value to the first element of the array
-    doc["humidity"][0] = readHumidity();
-    doc["light"][0] = readLight();
-    doc["soilmoisture"][0] = readMoistureSensor();
-    doc["device_id"] = "MKR1010";
+    DynamicJsonDocument doc(2048);
+    // doc["name"] = "Arduino MKR1010";
+    // doc["plant"] = "MKR1010";
+    doc["temperature"] = readTemperature(); // Assign value to the first element of the array
+    doc["humidity"] = readHumidity();
+    doc["light"] = readLight();
+    doc["soilMoisture"] = readMoistureSensor();
+    doc["deviceId"] = device_id;
+    // doc["location_id"] = "home";
+    // doc["user_id"] = "home123";
     
     String jsonString;
-    // serializeJson(doc, Serial);
-    // sendMqttMessage("device", jsonString);
-    Serial.println(jsonString);
+    serializeJson(doc, jsonString);
+    if (wifiConnected)
+    {
+      sendMqttMessage("device", jsonString);
+      // sendToApi(jsonString);
+    }else{
+      wifiConnected = true;
+      updateUi = true;
+    }
+
+
+    
+
+
   } else {
-    connectAp();
-  
+    wifiConnected = false;
+    updateUi = true;
   }
-  delay(8000);
+  delay(2000);
   WiFi.disconnect();
 
 }
+
+void sendToApi(String data) {
+      WiFiSSLClient wifiSSLClient;
+      HttpClient httpClient(wifiSSLClient, "smartplant.vercel.app", 443);
+      httpClient.beginRequest();
+      httpClient.post("/api/smartplant");
+      httpClient.sendHeader("Content-Type", "application/json");
+      httpClient.sendHeader("Content-Length", String(data.length()));
+      Serial.println("Sending data to API");
+      httpClient.beginBody();
+      httpClient.print(data);
+      httpClient.endRequest();
+
+      int statusCode = httpClient.responseStatusCode();
+      String response = httpClient.responseBody();
+
+      Serial.print("HTTP Status Code: ");
+      Serial.println(statusCode);
+      Serial.print("Response: ");
+      Serial.println(response);
+    }
 
 
 
@@ -197,15 +290,19 @@ void printNertworkData(){
 }
 
  void calibratedMoistureSensor(){
+  carrier.display.fillScreen(0);
+  carrier.display.setTextSize(2);
 
   bool dryCalab = false;
   bool wetCalab = false;
   carrier.display.setCursor(25, 100);
-  carrier.display.print("Place your sensor");
-  carrier.display.setCursor(20, 120);
-  carrier.display.print("on a dry surface.");
+  carrier.display.print("Placer din sensor");
+  carrier.display.setCursor(40, 120);
+  carrier.display.print("paa en toer");
   carrier.display.setCursor(20, 140);
-  carrier.display.print("and press the button");
+  carrier.display.print("overflade og");
+  carrier.display.setCursor(20, 160);
+  carrier.display.print("tryk paa knappen");
   carrier.leds.setPixelColor(0, 0xF800);
   carrier.leds.show();
   
@@ -223,11 +320,13 @@ void printNertworkData(){
   }
   carrier.display.fillScreen(0);
   carrier.display.setCursor(25, 100);
-  carrier.display.print("Place your sensor");
+  carrier.display.print("Placer din sensor");
   carrier.display.setCursor(20, 120);
-  carrier.display.print("in a glass of water.");
+  carrier.display.print("i et glas vand");
   carrier.display.setCursor(20, 140);
-  carrier.display.print("and press the button");
+  carrier.display.print("og tryk paa");
+  carrier.display.setCursor(20, 160);
+  carrier.display.print("knappen");
   carrier.leds.setPixelColor(4, 0xF800);
   carrier.leds.show();
   while (!wetCalab)
@@ -244,9 +343,7 @@ void printNertworkData(){
     }
   }
   
-  carrier.display.fillScreen(0);
-  
-
+  updateUi = true;
 
 
  }
@@ -257,7 +354,7 @@ void printNertworkData(){
   int moisture = analogRead(A6);
   int moisturePercent = map(moisture, wet - 30, dry, 100, 0);
   DynamicJsonDocument moistJson(1024);
-  moistJson["soilMoisturePercentage"] = (moisturePercent);
+  moistJson["value"] = (moisturePercent);
   return moistJson;
  }
 
@@ -265,35 +362,35 @@ void printNertworkData(){
  DynamicJsonDocument readTemperature(){
   int temp = carrier.Env.readTemperature();
   DynamicJsonDocument tempJson(1024);
-  tempJson["temperatureDegrees"] = (temp -8);
+  tempJson["value"] = (temp -8);
   return tempJson;
  }
 
 DynamicJsonDocument readLight(){
   int A, B, C, D;
-  Serial.println(carrier.Light.colorAvailable());  
-  if(carrier.Light.colorAvailable()){
-  Serial.println("test123");
-
-    carrier.Light.readColor(A, B, C, D);
-    
-    if (D > 120)
-    {
-      D = 120;
-    }
-    
-    int lightProcent = map(D, 0, 120, 0, 100);
-    DynamicJsonDocument lightJson(1024);
-    lightJson["lightPercentage"] = (lightProcent);
-    serializeJson(lightJson, Serial);
-    // return lightJson;
+  int counter = 0;  
+  while (!carrier.Light.colorAvailable() || counter++ < 20)
+  {
+    delay(100);
   }
+
+  carrier.Light.readColor(A, B, C, D);
+
+  if (D > 200)
+  {
+    D = 200;
+  }
+
+  int lightProcent = map(D, 0, 200, 0, 100);
+    DynamicJsonDocument lightJson(1024);
+    lightJson["value"] = (lightProcent);
+    return lightJson;
+  
 }
 DynamicJsonDocument readHumidity(){
   int hum = carrier.Env.readHumidity();
   DynamicJsonDocument humJson(1024);
-  humJson["humidityPercentage"] = (hum);
-  Serial.println("test");
+  humJson["value"] = (hum);
   return humJson;
 }
 
@@ -307,6 +404,7 @@ void sendMqttMessage(String topic, String value){
   }
   if(WiFi.status() == WL_CONNECTED){
   Serial.println("MQTT connection success");
+  Serial.println(value);
   mqttClient.beginMessage(topic);
   mqttClient.print(value);
   mqttClient.endMessage();
@@ -314,4 +412,36 @@ void sendMqttMessage(String topic, String value){
 
   }
 
+}
+
+void showQrCode()
+{
+  carrier.display.fillScreen(0);
+  carrier.display.drawBitmap(50, 50, smartplantQR, 140, 140, 0xffff);
+  carrier.display.setTextSize(1, 2);
+  carrier.display.setCursor(80, 30);
+  carrier.display.print("Scan QR koden");
+  carrier.display.setCursor(110, 195);
+  carrier.display.print("Vider");
+  carrier.display.drawBitmap(93, 190, arrow_down, 61, 61, 0xffff);
+  if (ledOn)
+  {
+    carrier.leds.setBrightness(25);
+    carrier.leds.setPixelColor(2, 0, 0, 255);
+    carrier.leds.show();
+  }
+  
+  bool next = true;
+
+  while (next)
+  {
+    carrier.Buttons.update();
+    if (carrier.Buttons.onTouchDown(TOUCH2))
+    {
+      next = false;
+      updateUi = true;
+ 
+    }
+  }
+  
 }
