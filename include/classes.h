@@ -12,3 +12,7 @@ public:
         light = n4;
     }
 };
+struct WifiData {
+    char ssid[64];
+    char password[64];
+};

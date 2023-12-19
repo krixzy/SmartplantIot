@@ -8,36 +8,31 @@
 #include "frontEnd.cpp"
 
 
-char ssid[] = SECRET_SSID;
-char pass[] = SECRET_PASS;
+
+FlashStorage(flashmemo, WifiData);
+int latestMouister = 0;
+String ssid = "";
+String pass = "";
 WiFiServer server(80);
 unsigned long previousMillis = 0;
 const long interval = 1000 * 60 * 60 * 3;
 int dry;
 int wet;
 
-const char user[] = MQTTUSER;
-const char password[] = MQTTPASS;
-const char broker[] = MQTT_SERVER;
-int        port     = MQTT_PORT;
-String     device_id    = "MKR1010-4";
 bool wifiConnected = false;
 bool updateUi = false;
-// DynamicJsonDocument soilMoist; 
-// DynamicJsonDocument temperature; 
-// DynamicJsonDocument humidity; 
-// DynamicJsonDocument light; 
+
 
 
 WiFiSSLClient wifiSSLClient;
 MqttClient mqttClient(wifiSSLClient);
 
 
-
+// returnes alle the values from the sensors in a json object
 DynamicJsonDocument updateValues(){
   DynamicJsonDocument valueJson(1024);
 
-  valueJson["soilMoisture"] = readMoistureSensor();
+  valueJson["soilMoisture"] = readMoistureSensor(false);
   valueJson["temperature"] = readTemperature();
   valueJson["humidity"] = readHumidity();
   valueJson["light"] = readLight();
@@ -46,34 +41,58 @@ DynamicJsonDocument updateValues(){
 
 
 
+// check if you allready have some saved wifi id and password in flash and go to default if not
+void checkFlash(){
+  if (strcmp(flashmemo.read().ssid, "") == 0)
+  {
+    Serial.println("No ssid");
+    ssid = SECRET_SSID;
+    pass = SECRET_PASS; 
+  }else{
+    Serial.println("ssid");
+    ssid = flashmemo.read().ssid;
+    pass = flashmemo.read().password;
 
+  }
+  
+};
+
+
+// runs once when the arduino startup
 void setup() {
+
+
   Serial.begin(9600);
   while (!Serial);
 
+
+
+  checkFlash();
   carrier.noCase();
   carrier.begin();
-
-  // onStartUp(wifiConnected);
+  onStartUp(wifiConnected);
   // updateUserInterface(wifiConnected);
-  showQrCode();
+  // showQrCode();
 
-
-
+ 
   // carrier.display.drawBitmap(40, 40, smartplantQR, 140, 140, 0xffff);
     
   // calibratedMoistureSensor();
-  // connectWifi();
+  // connectWifi(false);
+  // connectWifi(false);
 
 
 
-}
 
-void loop() {
   
+}
+// runs continuously in a loop after setup() have run once
+void loop() {
+
+
   if(millis() - previousMillis >= interval){
     previousMillis = millis();
-    connectWifi();
+    connectWifi(false);
     updateUi = true;
   }
   if (updateUi)
@@ -91,11 +110,15 @@ void loop() {
   {
     showData();
   }
+  if (carrier.Buttons.onTouchDown(TOUCH1))
+  {
+    showQrCode();
+  }
 
-  // connectWifi();
+  // connectWifi(false);
 
 }
-
+// set up an acccess point for the user to connect to
 void connectAp() {
   arduinoApConnectionText();
   server.begin();
@@ -138,8 +161,8 @@ void connectAp() {
               client.println("</head>");
               client.println("<body>");
               client.println("<form method='post' action='/'>");
-              client.println("SSID: <input type='text' name='ssid'><br>");
-              client.println("Password: <input type='password' name='pass'><br>");
+              client.println("Wifi navn: <input type='text' name='ssid'><br>");
+              client.println("Wifi kode: <input type='password' name='pass'><br>");
               client.println("<input type='hidden' name='hiddenField' value='test'>");
               client.println("<input type='submit' value='Connect'>");
               client.println("</form>");
@@ -165,19 +188,20 @@ void connectAp() {
                     int passStart = postData.indexOf("pass=") + 5;
                     int passEnd = postData.indexOf("&", passStart);
                     String newPassword = postData.substring(passStart, passEnd);
-                    ssid[newSsid.length() + 1];
-                    newSsid.toCharArray(ssid, newSsid.length() + 1);
-
-                    pass[newPassword.length() + 1];
-                    newPassword.toCharArray(pass, newPassword.length() + 1);
-                    #define SECRET_SSID newSsid
-                    #define SECRET_PASS newPassword
+                    ssid = newSsid;
+                    pass = newPassword;
+                    WifiData data;
+                    strncpy(data.ssid, newSsid.c_str(), sizeof(data.ssid));
+                    // data.ssid[sizeof(data.ssid) - 1] = '\0'; 
+                    strncpy(data.password, newPassword.c_str(), sizeof(data.password));
+                    // data.password[sizeof(data.password) - 1] = '\0'; 
+                    flashmemo.write(data);
                     Serial.println(ssid);
                     Serial.println(pass);
                     client.stop();
                     apOpen = false;
                     carrier.display.fillScreen(0);
-                    connectWifi();
+                    connectWifi(false);
  
                   }
 
@@ -198,34 +222,31 @@ void connectAp() {
 
 }
 
-
-void connectWifi() {
+// connect to the wifi network, sending the data to mongo and disconate again it is a bool to check if the plant has been watered
+void connectWifi(bool watthering) {
     int counter = 20;
     carrier.display.fillScreen(0);
     carrier.display.setTextSize(2);
-    carrier.display.setCursor(80, 117);
-    carrier.display.print("Loading");
-    WiFi.begin(ssid, pass);
-    Serial.print("Connecting to ");
-  while (WiFi.status() != WL_CONNECTED && counter-- > 0) {
-    delay(4000);
-    WiFi.begin(ssid, pass);
-    Serial.print(counter);
-  }
+      carrier.display.setCursor(80, 117);
+      carrier.display.print("Loading");
+      WiFi.begin(ssid.c_str(), pass.c_str());
+      Serial.print("Connecting to ");
+    while (WiFi.status() != WL_CONNECTED && counter-- > 0) {
+      delay(4000);
+      WiFi.begin(ssid.c_str(), pass.c_str());
+      Serial.print(counter);
+    }
   
   if (WiFi.status() == WL_CONNECTED) {
     printNertworkData();
     DynamicJsonDocument doc(2048);
-    // doc["name"] = "Arduino MKR1010";
-    // doc["plant"] = "MKR1010";
-    doc["temperature"] = readTemperature(); // Assign value to the first element of the array
+
+    doc["temperature"] = readTemperature(); 
     doc["humidity"] = readHumidity();
     doc["light"] = readLight();
-    doc["soilMoisture"] = readMoistureSensor();
+    doc["soilMoisture"] = readMoistureSensor(watthering);
     doc["deviceId"] = device_id;
-    // doc["location_id"] = "home";
-    // doc["user_id"] = "home123";
-    
+
     String jsonString;
     serializeJson(doc, jsonString);
     if (wifiConnected)
@@ -249,7 +270,7 @@ void connectWifi() {
   WiFi.disconnect();
 
 }
-
+// send data to an api it takes a json string as a parameter for the data it sends
 void sendToApi(String data) {
       WiFiSSLClient wifiSSLClient;
       HttpClient httpClient(wifiSSLClient, "smartplant.vercel.app", 443);
@@ -272,7 +293,7 @@ void sendToApi(String data) {
     }
 
 
-
+// print Network data to the serial monitor
 void printNertworkData(){
   Serial.println("You're connected to the network");
 
@@ -289,6 +310,9 @@ void printNertworkData(){
   Serial.println(WiFi.SSID());
 }
 
+
+
+//calibrate the moisture sensor
  void calibratedMoistureSensor(){
   carrier.display.fillScreen(0);
   carrier.display.setTextSize(2);
@@ -349,23 +373,38 @@ void printNertworkData(){
  }
 
 
-
- DynamicJsonDocument readMoistureSensor(){
+// read the moisture sensor and return a json object it takes a bool to check if the plant has been watered
+ DynamicJsonDocument readMoistureSensor(bool watthering){
   int moisture = analogRead(A6);
   int moisturePercent = map(moisture, wet - 30, dry, 100, 0);
+  if(moisturePercent < 0){
+    moisturePercent = 0;
+  }
+if (watthering)
+{
+  if (moisturePercent <= latestMouister + 20)
+  {
+    moisturePercent = latestMouister + 20;
+  }
+  
+}else
+{
+  latestMouister = moisturePercent;
+
+}
   DynamicJsonDocument moistJson(1024);
   moistJson["value"] = (moisturePercent);
   return moistJson;
  }
 
-
+// read the temperature sensor and return a json object
  DynamicJsonDocument readTemperature(){
   int temp = carrier.Env.readTemperature();
   DynamicJsonDocument tempJson(1024);
   tempJson["value"] = (temp -8);
   return tempJson;
  }
-
+// read the light sensor and return a json object
 DynamicJsonDocument readLight(){
   int A, B, C, D;
   int counter = 0;  
@@ -387,6 +426,8 @@ DynamicJsonDocument readLight(){
     return lightJson;
   
 }
+
+// read the humidity sensor and return a json object
 DynamicJsonDocument readHumidity(){
   int hum = carrier.Env.readHumidity();
   DynamicJsonDocument humJson(1024);
@@ -395,8 +436,12 @@ DynamicJsonDocument readHumidity(){
 }
 
 
-
+// send data to the mqtt server it takes a topic that i send to and a value that is the data
 void sendMqttMessage(String topic, String value){
+const char user[] = MQTTUSER;
+const char password[] = MQTTPASS;
+const char broker[] = MQTT_SERVER;
+int        port     = MQTT_PORT;
   mqttClient.setUsernamePassword(user, password);
   if(!mqttClient.connect(broker, port)){
     Serial.println("MQTT connection failed");
@@ -414,8 +459,12 @@ void sendMqttMessage(String topic, String value){
 
 }
 
+
+// show a qr code on the screen
 void showQrCode()
 {
+  carrier.leds.clear();
+  carrier.leds.show();
   carrier.display.fillScreen(0);
   carrier.display.drawBitmap(50, 50, smartplantQR, 140, 140, 0xffff);
   carrier.display.setTextSize(1, 2);

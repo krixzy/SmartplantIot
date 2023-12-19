@@ -3,15 +3,66 @@
 #include <secrets.h>
 #include <ArduinoMqttClient.h>
 #include <ArduinoJson.h>
+#include <FlashStorage.h>
 #include "functions.h"
 #include "visuals.h"
 #include "classes.h"
 
 
+
 MKRIoTCarrier carrier;
 bool ledOn = true;
 void optionsText();
+String device_id = "id1231241231";
 
+
+
+//function that showes the device id to the user
+void showDeviceId()
+{
+    carrier.leds.clear();
+    carrier.leds.show();
+    carrier.display.fillScreen(0);
+    carrier.display.setTextSize(2);
+    carrier.display.setCursor(20, 80);
+    carrier.display.print("Dit device id er:");
+    int deviceLength = device_id.length();
+    Serial.println(deviceLength);
+
+    carrier.display.setCursor(120 - (6 * deviceLength), 120);
+    carrier.display.print(device_id);
+    carrier.display.setCursor(85, 200);
+    carrier.display.print("Tilbage");
+    carrier.display.drawBitmap(88, 200, arrow_down, 61, 61, 0xffff);
+
+
+
+
+
+    if (ledOn)
+    {
+        carrier.leds.setPixelColor(2, 0, 0, 255);
+        carrier.leds.show();
+    }
+    
+    bool waitingForInput = true;
+    while (waitingForInput)
+    {
+        carrier.Buttons.update();
+        if (carrier.Buttons.onTouchDown(TOUCH2))
+        {
+            carrier.leds.clear();
+            carrier.leds.show();
+            carrier.display.fillScreen(0);
+            waitingForInput = false;
+            updateUserInterface(true);
+        }
+    }
+    
+
+}
+
+//runs the startup sequence and checks if the arduino has been used before it takes a bool that tells if wifi is connected
 void onStartUp(bool wifiConnected)
 {
     carrier.display.fillScreen(0x0);
@@ -68,6 +119,7 @@ void onStartUp(bool wifiConnected)
 
 }
 
+//display to the user how  to connect to the arduino's access point
 void arduinoApConnectionText()
 {
     carrier.display.setTextSize(2);
@@ -87,7 +139,7 @@ void arduinoApConnectionText()
 
 
 }
-
+//display to the user what to do ones its connected to the arduino's access point
 void arduinoApInstruction()
 {
 carrier.display.setTextSize(2);
@@ -97,14 +149,14 @@ carrier.display.print("nu skal du skrive");
 carrier.display.setCursor(20, 80);
 carrier.display.print("dit wifi navn");
 carrier.display.setCursor(20, 100);
-carrier.display.print("og kodeord ind");
+carrier.display.print("og wifi kode ind");
 carrier.display.setCursor(20, 120);
 carrier.display.print("og saa tryk paa");
 carrier.display.setCursor(20, 140);
 carrier.display.print("Connect knappen");
 }
 
-
+//display to the user that wifi is connected
 void drawWifiOn()
 {
 
@@ -114,6 +166,7 @@ void drawWifiOn()
     carrier.display.fillRect(135, 10, 5, 20, 0xffff);
 
 }
+//display to the user that wifi is not connected
 void drawWifiOff()
 {
     carrier.display.drawRect(105, 25, 5, 5, 0xffff);
@@ -122,24 +175,18 @@ void drawWifiOff()
     carrier.display.drawRect(135, 10, 5, 20, 0xffff);
 
 }
-
+//turn on the leds in the options menu
 void optionsLight()
 {
     carrier.leds.setPixelColor(4, 0, 255, 0);
     carrier.leds.setPixelColor(0, 0, 255, 0);
     carrier.leds.setPixelColor(2, 0, 0, 255);
     carrier.leds.setPixelColor(3, 0, 255, 0);
+    carrier.leds.setPixelColor(1, 0, 255, 0);
 
 }
 
-
-
-
-
-
-
-
-
+//listen for input from the user in the options menu takes a bool that tells if the function has to wait for input
 void optionInputListener(bool waitforInput)
 {
     while (waitforInput)
@@ -195,12 +242,23 @@ void optionInputListener(bool waitforInput)
             delay(100);
            
         }
+        if (carrier.Buttons.onTouchDown(TOUCH1))
+        {
+            carrier.leds.clear();
+            carrier.leds.show();
+            carrier.display.fillScreen(0);
+            waitforInput = false;
+            showDeviceId();
+        }
+        
+
        
         
     }
 
 }
 
+//display the text in the options menu
 void optionsText()
 {
     carrier.display.setTextSize(1,2);
@@ -213,17 +271,17 @@ void optionsText()
     carrier.display.setCursor(100, 200);
     carrier.display.print("tilbage");
     carrier.display.drawBitmap(88, 200, arrow_down, 61, 61, 0xffff);
+    carrier.display.setCursor(160, 170);
+    carrier.display.print("deviceID");
+    carrier.display.drawBitmap(150, 170, arrow_right, 61, 61, 0xffff);
     carrier.display.setCursor(30, 170);
-    carrier.display.drawBitmap(30, 180, arrow_left, 61, 61, 0xffff);
+    carrier.display.drawBitmap(30, 170, arrow_left, 61, 61, 0xffff);
+
+
 }
 
 
-
-
-
-
-
-
+//function that controle the options menu
 void showOptions()
 {
     
@@ -259,7 +317,7 @@ void showOptions()
 }
 
 
-
+//display the text in the data menu
 void dataText()
 {
 
@@ -268,18 +326,14 @@ void dataText()
     carrier.display.setCursor(80, 117);
     carrier.display.print("Loading");
     DynamicJsonDocument value = updateValues();
-    // DynamicJsonDocument temperature = readTemperature();
-    // DynamicJsonDocument humidity = readHumidity();
-    // DynamicJsonDocument soilMoisture = readMoistureSensor();
-    // DynamicJsonDocument light = readLight();  
     carrier.display.fillScreen(0);
     carrier.display.setTextSize(1,2);
-
-
-
-
-
-
+    carrier.display.setCursor(160, 170);
+    carrier.display.print("vanding");
+    carrier.display.drawBitmap(155, 170, arrow_right, 61, 61, 0xffff);
+    carrier.display.setCursor(30, 170);
+    carrier.display.print("send data");
+    carrier.display.drawBitmap(20, 170, arrow_left, 61, 61, 0xffff);
     carrier.display.setCursor(30, 80);
     carrier.display.print("Luft fugtighed:");
     carrier.display.setCursor(170, 80);
@@ -301,7 +355,8 @@ void dataText()
     carrier.display.drawBitmap(88, 200, arrow_down, 61, 61, 0xffff);
 }
 
-
+//listen for input from the user in the data menu takes a bool that tells if the user has to wait for input and a long that tells when the function started
+//it only waits for input for 5 min then it goes back to the main menu
 void dataInputListener(bool waitForInput, long startMillis)
  {
    while (waitForInput)
@@ -320,6 +375,26 @@ void dataInputListener(bool waitForInput, long startMillis)
             waitForInput = false;
             updateUserInterface(true);  
         }
+        if (carrier.Buttons.onTouchDown(TOUCH1))
+        {
+            carrier.leds.clear();
+            carrier.leds.show();
+            carrier.display.fillScreen(0);
+            waitForInput = false;
+            
+            connectWifi(true);
+            updateUserInterface(true);
+        }
+        if (carrier.Buttons.onTouchDown(TOUCH3))
+        {
+            carrier.leds.clear();
+            carrier.leds.show();
+            carrier.display.fillScreen(0);
+            waitForInput = false;
+            connectWifi(false);
+            updateUserInterface(true);
+        }
+        
         
    }
     
@@ -329,7 +404,7 @@ void dataInputListener(bool waitForInput, long startMillis)
 
 
 
-
+//function that controle the data menu
 void showData()
 {
     unsigned long startMillis = millis();
@@ -346,7 +421,10 @@ void showData()
     if (ledOn)
     {
         carrier.leds.setPixelColor(2, 0, 0, 255);
+        carrier.leds.setPixelColor(1, 0, 255, 0);
+        carrier.leds.setPixelColor(3, 0, 255, 0);
         carrier.leds.show();
+
     }
     
     dataInputListener(true, startMillis);
@@ -355,7 +433,7 @@ void showData()
 
 
 
-
+//controlles what smily to display takes a DeviceValues object to decide what smily to display
 void smilySettings(DeviceValues values)
 {
 
@@ -379,7 +457,7 @@ void smilySettings(DeviceValues values)
 }
 
 
-
+//function that controle the main menu takes a bool that tells if wifi is connected
 void updateUserInterface( bool wifiConnected)
 {
     carrier.display.fillScreen(0);
@@ -414,12 +492,15 @@ void updateUserInterface( bool wifiConnected)
     carrier.display.setCursor(30, 170);
     carrier.display.print("Vis data");
     carrier.display.drawBitmap(20, 170, arrow_left, 61, 61, 0xffff);
-
+    carrier.display.setCursor(150, 170);
+    carrier.display.print("Vis QR kode");
+    carrier.display.drawBitmap(155, 170, arrow_right, 61, 61, 0xffff);
 
     if (ledOn)
     {
     carrier.leds.setPixelColor(2, 0, 0, 255);
-    carrier.leds.setPixelColor(3, 0, 220, 40);
+    carrier.leds.setPixelColor(3, 0, 255, 0);
+    carrier.leds.setPixelColor(1, 0, 255, 0);
     carrier.leds.show();
     }
     else
